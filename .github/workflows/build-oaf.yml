@@ -1,0 +1,114 @@
+name: Build OAF kmod
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target to build for'
+        required: true
+        default: 'an7581'
+        type: choice
+        options:
+          - an7581
+          - an7583
+
+jobs:
+  build-oaf:
+    name: Build kmod-oaf (${{ inputs.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Free build space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo apt-get clean
+          df -h
+
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk \
+            gettext git g++-multilib gcc-multilib gperf help2man intltool \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev \
+            libtool libyaml-dev lld llvm ninja-build p7zip-full patch pkgconf \
+            python3 python3-docutils python3-pip python3-ply python3-pyelftools \
+            qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo \
+            uglifyjs unzip wget xmlto xxd zlib1g-dev zstd
+
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: dl
+          key: oaf-dl-${{ inputs.target }}-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}
+          restore-keys: |
+            oaf-dl-${{ inputs.target }}-
+
+      - name: Update and install feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          echo "=== OAF packages ==="
+          ls -la package/feeds/oaf/ || true
+
+      - name: Configure
+        run: |
+          cp "configs/${{ inputs.target }}.config" .config
+          ./scripts/config.pl + configs/release.config > /dev/null 2>&1 || \
+            (cat "configs/${{ inputs.target }}.config" configs/release.config > .config)
+          # 鍚敤 OAF 鐩稿叧鍖?          cat >> .config <<'EOF'
+          CONFIG_PACKAGE_kmod-oaf=m
+          CONFIG_PACKAGE_appfilter=m
+          CONFIG_PACKAGE_luci-app-oaf=m
+          CONFIG_PACKAGE_luci-i18n-oaf-zh-cn=m
+          EOF
+          # 鍐呮牳闇€瑕?nf_conntrack
+          make defconfig
+          echo "=== 妫€鏌?OAF 閰嶇疆 ==="
+          grep -i oaf .config || echo "(鏈湪 .config 鎵惧埌 oaf)"
+          grep -i appfilter .config || echo "(鏈壘鍒?appfilter)"
+
+      - name: Download sources
+        run: make download -j8 || true
+
+      - name: Build kmod-oaf
+        run: |
+          set -o pipefail
+          make package/feeds/oaf/oaf/compile V=s -j$(nproc) 2>&1 | tail -200
+
+      - name: Build appfilter
+        run: |
+          set -o pipefail
+          make package/feeds/oaf/open-app-filter/compile V=s -j$(nproc) 2>&1 | tail -200
+
+      - name: Build luci-app-oaf
+        run: |
+          set -o pipefail
+          make package/feeds/oaf/luci-app-oaf/compile V=s -j$(nproc) 2>&1 | tail -200
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          find bin/ -name '*oaf*.apk' -exec cp -v {} out/ \; 2>/dev/null || true
+          find bin/ -name '*appfilter*.apk' -exec cp -v {} out/ \; 2>/dev/null || true
+          find bin/ -name '*oaf*.ipk' -exec cp -v {} out/ \; 2>/dev/null || true
+          find bin/ -name '*appfilter*.ipk' -exec cp -v {} out/ \; 2>/dev/null || true
+          echo "=== 鏀堕泦缁撴灉 ==="
+          ls -la out/ || echo "(绌?"
+          # 涔熸妸缂栬瘧鍑虹殑 .ko 鎵惧嚭鏉?          find build_dir -name 'oaf.ko' -exec cp -v {} out/ \; 2>/dev/null || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oaf-${{ inputs.target }}
+          path: out/*
+          if-no-files-found: warn
+          retention-days: 30
