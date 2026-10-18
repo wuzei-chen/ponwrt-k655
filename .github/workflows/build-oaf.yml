@@ -25,7 +25,6 @@ jobs:
       - name: Free build space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          sudo apt-get clean
           df -h /
 
       - name: Install build dependencies
@@ -48,13 +47,13 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          echo "=== OAF feed packages ==="
-          ls -la package/feeds/oaf/ || true
+          echo "=== open-app-filter location ==="
+          ls -la package/feeds/packages/net/open-app-filter/ || true
 
       - name: Configure
         run: |
-          cp "configs/${{ inputs.target }}.config" .config
-          cat "configs/oaf.config" >> .config
+          ./scripts/kconfig.pl + "configs/${{ inputs.target }}.config" configs/release.config > .config
+          cat configs/oaf.config >> .config
           make defconfig
           echo "=== OAF config entries ==="
           grep -i -E 'oaf|appfilter' .config || echo "(none found)"
@@ -62,31 +61,41 @@ jobs:
       - name: Download sources
         run: make download -j8 || true
 
+      - name: Build host tools
+        run: make tools/install -j$(nproc) 2>&1 | tail -40
+
+      - name: Build toolchain
+        run: make toolchain/install -j$(nproc) 2>&1 | tail -40
+
+      - name: Wipe kernel module build dirs
+        run: |
+          rm -rf build_dir/target-*/linux-*/linux-*/net/netfilter build_dir/target-*/open-app-filter-* || true
+
       - name: Build kmod-oaf
+        shell: bash
         run: |
-          make package/feeds/oaf/oaf/compile V=s -j$(nproc) 2>&1 | tail -200
+          set -o pipefail
+          make package/feeds/packages/open-app-filter/compile V=s -j1 2>&1 | tail -400
 
-      - name: Build appfilter
+      - name: Locate artifacts
         run: |
-          make package/feeds/oaf/open-app-filter/compile V=s -j$(nproc) 2>&1 | tail -200
-
-      - name: Build luci-app-oaf
-        run: |
-          make package/feeds/oaf/luci-app-oaf/compile V=s -j$(nproc) 2>&1 | tail -200
+          echo "=== oaf.ko ==="
+          find build_dir -name 'oaf.ko' -exec ls -la {} \; || true
+          echo "=== apk/ipk ==="
+          find bin -name '*oaf*' -o -name '*appfilter*' | head -20
 
       - name: Collect artifacts
         run: |
           mkdir -p out
-          find bin/ -name '*oaf*' -type f -exec cp -v {} out/ \; 2>/dev/null || true
-          find bin/ -name '*appfilter*' -type f -exec cp -v {} out/ \; 2>/dev/null || true
-          find build_dir -name 'oaf.ko' -exec cp -v {} out/ \; 2>/dev/null || true
+          find build_dir -name 'oaf.ko' -exec cp -v {} out/ \; || true
+          find bin \( -name '*oaf*' -o -name '*appfilter*' \) -type f -exec cp -v {} out/ \; || true
           echo "=== collected ==="
-          ls -la out/ || echo "(empty)"
+          ls -la out/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: oaf-${{ inputs.target }}
           path: out/*
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
