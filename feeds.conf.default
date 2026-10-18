@@ -5,7 +5,6 @@ src-git telephony https://github.com/openwrt/telephony.git
 src-git video https://github.com/openwrt/video.git
 src-git pon_drivers https://github.com/pbs05/openwrt-pon-drivers.git
 src-git pon_userspace https://github.com/pbs05/openwrt-pon-userspace.git
-src-git oaf https://github.com/destan19/OpenAppFilter.git;master
 #src-git targets https://github.com/openwrt/targets.git
 #src-git oldpackages http://git.openwrt.org/packages.git
 #src-link custom /usr/src/openwrt/custom-feed
