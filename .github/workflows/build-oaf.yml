@@ -36,7 +36,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             asciidoc autoconf automake autopoint binutils bison build-essential \
             bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk \
-            gettext git g++-multilib gcc-multilib gperf help2man intltool \
+            gettext git g++-multilib gcc-multilib gperf help2man intool \
             libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
             libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev \
             libtool libyaml-dev lld llvm ninja-build p7zip-full patch pkgconf \
@@ -56,54 +56,41 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          echo "=== OAF packages ==="
+          echo "=== OAF feed packages ==="
           ls -la package/feeds/oaf/ || true
 
       - name: Configure
         run: |
           cp "configs/${{ inputs.target }}.config" .config
-          ./scripts/config.pl + configs/release.config > /dev/null 2>&1 || \
-            (cat "configs/${{ inputs.target }}.config" configs/release.config > .config)
-          # 鍚敤 OAF 鐩稿叧鍖?          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_kmod-oaf=m
-          CONFIG_PACKAGE_appfilter=m
-          CONFIG_PACKAGE_luci-app-oaf=m
-          CONFIG_PACKAGE_luci-i18n-oaf-zh-cn=m
-          EOF
-          # 鍐呮牳闇€瑕?nf_conntrack
+          ./scripts/config.pl + configs/release.config >> .config || true
+          cat "configs/oaf.config" >> .config
           make defconfig
-          echo "=== 妫€鏌?OAF 閰嶇疆 ==="
-          grep -i oaf .config || echo "(鏈湪 .config 鎵惧埌 oaf)"
-          grep -i appfilter .config || echo "(鏈壘鍒?appfilter)"
+          echo "=== OAF config entries ==="
+          grep -i -E 'oaf|appfilter' .config || echo "(none found)"
 
       - name: Download sources
         run: make download -j8 || true
 
       - name: Build kmod-oaf
         run: |
-          set -o pipefail
-          make package/feeds/oaf/oaf/compile V=s -j$(nproc) 2>&1 | tail -200
+          make package/feeds/oaf/oaf/compile V=s -j$(nproc) 2>&1 | tail -150
 
       - name: Build appfilter
         run: |
-          set -o pipefail
-          make package/feeds/oaf/open-app-filter/compile V=s -j$(nproc) 2>&1 | tail -200
+          make package/feeds/oaf/open-app-filter/compile V=s -j$(nproc) 2>&1 | tail -150
 
       - name: Build luci-app-oaf
         run: |
-          set -o pipefail
-          make package/feeds/oaf/luci-app-oaf/compile V=s -j$(nproc) 2>&1 | tail -200
+          make package/feeds/oaf/luci-app-oaf/compile V=s -j$(nproc) 2>&1 | tail -150
 
       - name: Collect artifacts
         run: |
           mkdir -p out
-          find bin/ -name '*oaf*.apk' -exec cp -v {} out/ \; 2>/dev/null || true
-          find bin/ -name '*appfilter*.apk' -exec cp -v {} out/ \; 2>/dev/null || true
-          find bin/ -name '*oaf*.ipk' -exec cp -v {} out/ \; 2>/dev/null || true
-          find bin/ -name '*appfilter*.ipk' -exec cp -v {} out/ \; 2>/dev/null || true
-          echo "=== 鏀堕泦缁撴灉 ==="
-          ls -la out/ || echo "(绌?"
-          # 涔熸妸缂栬瘧鍑虹殑 .ko 鎵惧嚭鏉?          find build_dir -name 'oaf.ko' -exec cp -v {} out/ \; 2>/dev/null || true
+          find bin/ -name '*oaf*' -type f -exec cp -v {} out/ \; 2>/dev/null || true
+          find bin/ -name '*appfilter*' -type f -exec cp -v {} out/ \; 2>/dev/null || true
+          find build_dir -name 'oaf.ko' -exec cp -v {} out/ \; 2>/dev/null || true
+          echo "=== collected ==="
+          ls -la out/ || echo "(empty)"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
